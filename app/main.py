@@ -1,5 +1,6 @@
 import socket
 import struct
+import sys
 
 
 def encode_domain_name(domain):
@@ -48,6 +49,35 @@ def build_answer(domain, ip, qtype=1, qclass=1, ttl=60):
     )
 
 
+def parse_answer(buf, offset):
+    domain, offset = decode_domain_name(buf, offset)
+    qtype, qclass, ttl, rdlength = struct.unpack(">HHIH", buf[offset:offset + 10])
+    offset += 10
+    rdata = buf[offset:offset + rdlength]
+    offset += rdlength
+    return domain, qtype, qclass, ttl, rdata, offset
+
+
+def build_query_packet(query_id, domain, qtype=1, qclass=1):
+    header = struct.pack(">HHHHHH", query_id, 0, 1, 0, 0, 0)
+    return header + build_question(domain, qtype, qclass)
+
+
+def resolve_answer(resolver_addr, query_id, domain, qtype, qclass):
+    query = build_query_packet(query_id, domain, qtype, qclass)
+    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    try:
+        sock.sendto(query, resolver_addr)
+        data, _ = sock.recvfrom(512)
+    finally:
+        sock.close()
+
+    _, _, _, offset = parse_question(data, 12)
+    _, _, _, ttl, rdata, _ = parse_answer(data, offset)
+    ip = socket.inet_ntoa(rdata)
+    return build_answer(domain, ip, qtype, qclass, ttl)
+
+
 def parse_header(buf):
     packet_id, flags, qdcount, ancount, nscount, arcount = struct.unpack(
         ">HHHHHH", buf[:12]
@@ -92,25 +122,42 @@ def build_header(request, qdcount=0, ancount=0, nscount=0, arcount=0):
     )
 
 
-def build_response(buf):
+def build_response(buf, resolver_addr=None):
     request = parse_header(buf)
     offset = 12
-    domains = []
+    questions = []
     for _ in range(request["qdcount"]):
-        domain, _, _, offset = parse_question(buf, offset)
-        domains.append(domain)
+        domain, qtype, qclass, offset = parse_question(buf, offset)
+        questions.append((domain, qtype, qclass))
 
-    questions = b"".join(build_question(domain) for domain in domains)
-    answers = b"".join(build_answer(domain, "8.8.8.8") for domain in domains)
-    header = build_header(
-        request, qdcount=len(domains), ancount=len(domains)
+    question_bytes = b"".join(
+        build_question(domain, qtype, qclass) for domain, qtype, qclass in questions
     )
-    return header + questions + answers
+    if resolver_addr:
+        answer_bytes = b"".join(
+            resolve_answer(resolver_addr, request["id"], domain, qtype, qclass)
+            for domain, qtype, qclass in questions
+        )
+    else:
+        answer_bytes = b"".join(
+            build_answer(domain, "8.8.8.8", qtype, qclass)
+            for domain, qtype, qclass in questions
+        )
+    header = build_header(
+        request, qdcount=len(questions), ancount=len(questions)
+    )
+    return header + question_bytes + answer_bytes
 
 
 def main():
     # You can use print statements as follows for debugging, they'll be visible when running tests.
     print("Logs from your program will appear here!")
+
+    resolver_addr = None
+    if "--resolver" in sys.argv:
+        address = sys.argv[sys.argv.index("--resolver") + 1]
+        ip, port = address.rsplit(":", 1)
+        resolver_addr = (ip, int(port))
 
     udp_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     udp_socket.bind(("127.0.0.1", 2053))
@@ -119,7 +166,7 @@ def main():
          try:
              buf, source = udp_socket.recvfrom(512)
 
-             response = build_response(buf)
+             response = build_response(buf, resolver_addr)
 
              udp_socket.sendto(response, source)
          except Exception as e:
