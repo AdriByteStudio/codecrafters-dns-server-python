@@ -14,6 +14,12 @@ def decode_domain_name(buf, offset):
     labels = []
     while True:
         length = buf[offset]
+        if length & 0xC0 == 0xC0:
+            pointer = struct.unpack(">H", buf[offset:offset + 2])[0] & 0x3FFF
+            part, _ = decode_domain_name(buf, pointer)
+            labels.append(part)
+            offset += 2
+            return ".".join(labels), offset
         offset += 1
         if length == 0:
             break
@@ -88,11 +94,18 @@ def build_header(request, qdcount=0, ancount=0, nscount=0, arcount=0):
 
 def build_response(buf):
     request = parse_header(buf)
-    domain, _, _, _ = parse_question(buf, 12)
-    question = build_question(domain)
-    answer = build_answer(domain, "8.8.8.8")
-    header = build_header(request, qdcount=1, ancount=1)
-    return header + question + answer
+    offset = 12
+    domains = []
+    for _ in range(request["qdcount"]):
+        domain, _, _, offset = parse_question(buf, offset)
+        domains.append(domain)
+
+    questions = b"".join(build_question(domain) for domain in domains)
+    answers = b"".join(build_answer(domain, "8.8.8.8") for domain in domains)
+    header = build_header(
+        request, qdcount=len(domains), ancount=len(domains)
+    )
+    return header + questions + answers
 
 
 def main():
