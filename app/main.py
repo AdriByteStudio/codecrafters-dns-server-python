@@ -14,6 +14,15 @@ def build_question(domain, qtype=1, qclass=1):
     return encode_domain_name(domain) + struct.pack(">HH", qtype, qclass)
 
 
+def build_answer(domain, ip, qtype=1, qclass=1, ttl=60):
+    rdata = socket.inet_aton(ip)
+    return (
+        encode_domain_name(domain)
+        + struct.pack(">HHIH", qtype, qclass, ttl, len(rdata))
+        + rdata
+    )
+
+
 def build_header(qdcount=0, ancount=0, nscount=0, arcount=0):
     packet_id = 1234
     qr = 1
@@ -43,8 +52,9 @@ def build_header(qdcount=0, ancount=0, nscount=0, arcount=0):
 
 def build_response():
     question = build_question("codecrafters.io")
-    header = build_header(qdcount=1)
-    return header + question
+    answer = build_answer("codecrafters.io", "8.8.8.8")
+    header = build_header(qdcount=1, ancount=1)
+    return header + question + answer
 
 
 def main():
