@@ -10,6 +10,25 @@ def encode_domain_name(domain):
     return encoded + b"\x00"
 
 
+def decode_domain_name(buf, offset):
+    labels = []
+    while True:
+        length = buf[offset]
+        offset += 1
+        if length == 0:
+            break
+        labels.append(buf[offset:offset + length].decode())
+        offset += length
+    return ".".join(labels), offset
+
+
+def parse_question(buf, offset):
+    domain, offset = decode_domain_name(buf, offset)
+    qtype, qclass = struct.unpack(">HH", buf[offset:offset + 4])
+    offset += 4
+    return domain, qtype, qclass, offset
+
+
 def build_question(domain, qtype=1, qclass=1):
     return encode_domain_name(domain) + struct.pack(">HH", qtype, qclass)
 
@@ -69,8 +88,9 @@ def build_header(request, qdcount=0, ancount=0, nscount=0, arcount=0):
 
 def build_response(buf):
     request = parse_header(buf)
-    question = build_question("codecrafters.io")
-    answer = build_answer("codecrafters.io", "8.8.8.8")
+    domain, _, _, _ = parse_question(buf, 12)
+    question = build_question(domain)
+    answer = build_answer(domain, "8.8.8.8")
     header = build_header(request, qdcount=1, ancount=1)
     return header + question + answer
 
