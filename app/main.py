@@ -2,7 +2,19 @@ import socket
 import struct
 
 
-def build_header_response():
+def encode_domain_name(domain):
+    parts = domain.split(".")
+    encoded = b"".join(
+        struct.pack("B", len(part)) + part.encode() for part in parts
+    )
+    return encoded + b"\x00"
+
+
+def build_question(domain, qtype=1, qclass=1):
+    return encode_domain_name(domain) + struct.pack(">HH", qtype, qclass)
+
+
+def build_header(qdcount=0, ancount=0, nscount=0, arcount=0):
     packet_id = 1234
     qr = 1
     opcode = 0
@@ -12,10 +24,6 @@ def build_header_response():
     ra = 0
     z = 0
     rcode = 0
-    qdcount = 0
-    ancount = 0
-    nscount = 0
-    arcount = 0
 
     flags = (
         (qr << 15)
@@ -33,6 +41,12 @@ def build_header_response():
     )
 
 
+def build_response():
+    question = build_question("codecrafters.io")
+    header = build_header(qdcount=1)
+    return header + question
+
+
 def main():
     # You can use print statements as follows for debugging, they'll be visible when running tests.
     print("Logs from your program will appear here!")
@@ -44,7 +58,7 @@ def main():
          try:
              buf, source = udp_socket.recvfrom(512)
 
-             response = build_header_response()
+             response = build_response()
 
              udp_socket.sendto(response, source)
          except Exception as e:
