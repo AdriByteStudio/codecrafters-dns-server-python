@@ -23,16 +23,33 @@ def build_answer(domain, ip, qtype=1, qclass=1, ttl=60):
     )
 
 
-def build_header(qdcount=0, ancount=0, nscount=0, arcount=0):
-    packet_id = 1234
+def parse_header(buf):
+    packet_id, flags, qdcount, ancount, nscount, arcount = struct.unpack(
+        ">HHHHHH", buf[:12]
+    )
+    opcode = (flags >> 11) & 0x0F
+    rd = (flags >> 8) & 0x01
+    return {
+        "id": packet_id,
+        "opcode": opcode,
+        "rd": rd,
+        "qdcount": qdcount,
+        "ancount": ancount,
+        "nscount": nscount,
+        "arcount": arcount,
+    }
+
+
+def build_header(request, qdcount=0, ancount=0, nscount=0, arcount=0):
+    packet_id = request["id"]
     qr = 1
-    opcode = 0
+    opcode = request["opcode"]
     aa = 0
     tc = 0
-    rd = 0
+    rd = request["rd"]
     ra = 0
     z = 0
-    rcode = 0
+    rcode = 0 if opcode == 0 else 4
 
     flags = (
         (qr << 15)
@@ -50,10 +67,11 @@ def build_header(qdcount=0, ancount=0, nscount=0, arcount=0):
     )
 
 
-def build_response():
+def build_response(buf):
+    request = parse_header(buf)
     question = build_question("codecrafters.io")
     answer = build_answer("codecrafters.io", "8.8.8.8")
-    header = build_header(qdcount=1, ancount=1)
+    header = build_header(request, qdcount=1, ancount=1)
     return header + question + answer
 
 
@@ -68,7 +86,7 @@ def main():
          try:
              buf, source = udp_socket.recvfrom(512)
 
-             response = build_response()
+             response = build_response(buf)
 
              udp_socket.sendto(response, source)
          except Exception as e:
